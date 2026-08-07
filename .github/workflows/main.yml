@@ -1,75 +1,49 @@
-name: RDP - 16GB RAM + GPU
+name: RDP - 16GB RAM + GPU (Auto-apagado)
 
 on:
   workflow_dispatch:
     inputs:
       duracion:
-        description: 'Duración (minutos)'
+        description: 'Duración máxima (minutos)'
         required: false
         default: '360'
 
 jobs:
   secure-rdp:
-    runs-on: windows-latest  # Este runner tiene 16 GB de RAM
-    timeout-minutes: 660     # 11 horas (suficiente para 6h + margen)
+    runs-on: windows-latest
+    timeout-minutes: 660
 
     steps:
-      # ============================================================
-      # PASO 1: Verificar recursos (RAM + GPU) y configurar RDP
-      # ============================================================
+      # 1. Verificar RAM y GPU + Configurar RDP
       - name: Verificar RAM y GPU + Configurar RDP
         run: |
-          # ---------- VERIFICACIÓN DE 16 GB RAM ----------
+          # RAM
           $mem = Get-WmiObject Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum
           $ramGB = [math]::Round($mem.Sum/1GB, 2)
           Write-Host "💾 RAM detectada: $ramGB GB" -ForegroundColor Green
-          if ($ramGB -lt 15) {
-            Write-Warning "⚠️  El runner no tiene 16 GB, tiene $ramGB GB"
-          } else {
-            Write-Host "✅ RAM: 16 GB (correcto)" -ForegroundColor Green
-          }
           
-          # ---------- VERIFICACIÓN DE GPU ----------
+          # GPU
           $gpu = Get-WmiObject Win32_VideoController | Select-Object -First 1
-          Write-Host "🎮 GPU detectada: $($gpu.Name)" -ForegroundColor Green
-          Write-Host "   Driver: $($gpu.DriverVersion)"
+          Write-Host "🎮 GPU: $($gpu.Name)" -ForegroundColor Green
           
-          # ---------- CONFIGURAR RDP CON GPU ----------
-          # Habilitar RDP
+          # RDP + GPU
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          
-          # Seguridad: NLA activado (más seguro)
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1 -Force
-          
-          # ---------- ACTIVAR ACELERACIÓN GPU ----------
-          # Color de 32 bits (calidad máxima)
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MaxColorDepth" -Value 4 -Force
-          
-          # WDDM: driver gráfico moderno (mejor rendimiento)
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "fEnableWddmDriver" -Value 1 -Force
-          
-          # RemoteFX: aceleración de gráficos por hardware
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "EnableRemoteFx" -Value 1 -Force
           
-          Write-Host "✅ GPU acelerada: RemoteFX + WDDM activados" -ForegroundColor Green
-          
-          # Firewall: permitir RDP
           netsh advfirewall firewall delete rule name="RDP" 2>$null
           netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
-          
-          # Reiniciar servicio RDP
           Restart-Service -Name TermService -Force
           
-          Write-Host "✅ RDP configurado con aceleración gráfica" -ForegroundColor Green
+          Write-Host "✅ RDP con GPU activado" -ForegroundColor Green
 
-      # ============================================================
-      # PASO 2: Crear usuario RDP con contraseña (rápido)
-      # ============================================================
+      # 2. Crear usuario RDP
       - name: Crear usuario RDP
         run: |
           $pass = "${{ secrets.RDP_PASSWORD }}"
           if (-not $pass) {
-            # Generar contraseña segura de 16 caracteres
             $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-='
             $pass = -join ((1..16) | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
           }
@@ -81,19 +55,15 @@ jobs:
           echo "RDP_USER=RDP" >> $env:GITHUB_ENV
           Write-Host "✅ Usuario RDP creado" -ForegroundColor Green
 
-      # ============================================================
-      # PASO 3: Instalar Tailscale (solo ~40 MB)
-      # ============================================================
+      # 3. Instalar Tailscale
       - name: Instalar Tailscale
         run: |
-          Write-Host "📦 Descargando Tailscale..." -ForegroundColor Yellow
+          Write-Host "📦 Instalando Tailscale..." -ForegroundColor Yellow
           Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi" -OutFile "$env:TEMP\ts.msi" -UseBasicParsing
           Start-Process msiexec -ArgumentList "/i `"$env:TEMP\ts.msi`" /quiet /norestart" -Wait
           Write-Host "✅ Tailscale instalado" -ForegroundColor Green
 
-      # ============================================================
-      # PASO 4: Conectar Tailscale (obtener IP)
-      # ============================================================
+      # 4. Conectar Tailscale
       - name: Conectar Tailscale
         run: |
           Write-Host "🔄 Conectando a Tailscale..." -ForegroundColor Yellow
@@ -102,51 +72,70 @@ jobs:
             $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
             if ($ip) { 
               echo "TAILSCALE_IP=$ip" >> $env:GITHUB_ENV
-              Write-Host "✅ IP asignada: $ip" -ForegroundColor Green
+              Write-Host "✅ IP: $ip" -ForegroundColor Green
               break 
             }
             Start-Sleep -Seconds 3
           }
 
-      # ============================================================
-      # PASO 5: Mostrar credenciales de acceso
-      # ============================================================
+      # 5. Mostrar credenciales
       - name: Mostrar acceso
         run: |
           Write-Host ""
           Write-Host "╔════════════════════════════════════════════════════════════╗"
           Write-Host "║           🖥️  RDP - 16GB RAM + GPU ACELERADA           ║"
           Write-Host "╠════════════════════════════════════════════════════════════╣"
-          Write-Host "║                                                            ║"
           Write-Host "║  🌐 IP Tailscale:  $env:TAILSCALE_IP                     ║"
           Write-Host "║  👤 Usuario:       $env:RDP_USER                          ║"
           Write-Host "║  🔑 Contraseña:    $env:RDP_PASS                         ║"
           Write-Host "║  💾 RAM:           16 GB (verificado)                     ║"
           Write-Host "║  🎮 GPU:           Acelerada (RemoteFX + WDDM)           ║"
-          Write-Host "║  ⏱️  Duración:      ${{ github.event.inputs.duracion }} minutos  ║"
-          Write-Host "║                                                            ║"
+          Write-Host "║  ⏱️  Duración máx:  ${{ github.event.inputs.duracion }} min  ║"
           Write-Host "╠════════════════════════════════════════════════════════════╣"
-          Write-Host "║  📌 CONECTAR:                                             ║"
-          Write-Host "║  • Cliente RDP (mstsc) →  IP: $env:TAILSCALE_IP         ║"
-          Write-Host "║  • Usuario: RDP  |  Contraseña: (la de arriba)           ║"
-          Write-Host "║  • Experiencia gráfica optimizada                        ║"
+          Write-Host "║  ⚡ Auto-apagado:  Se detendrá si no hay sesión RDP      ║"
+          Write-Host "║                     durante 2 minutos consecutivos.      ║"
           Write-Host "╚════════════════════════════════════════════════════════════╝"
           Write-Host ""
 
-      # ============================================================
-      # PASO 6: Mantener sesión activa durante X horas
-      # ============================================================
-      - name: Mantener activo
+      # 6. Mantener activo MONITOREANDO SESIÓN RDP (Auto-apagado)
+      - name: Mantener activo con detección de sesión
         run: |
-          $fin = (Get-Date).AddMinutes([int]${{ github.event.inputs.duracion }})
-          Write-Host "⏳ Sesión activa hasta: $fin" -ForegroundColor Yellow
-          Write-Host "⚠️  Presiona Ctrl+C en la interfaz de GitHub para terminar antes" -ForegroundColor Yellow
+          $duracionMax = [int]${{ github.event.inputs.duracion }}
+          $fin = (Get-Date).AddMinutes($duracionMax)
+          $sinSesion = 0          # contador de segundos sin sesión
+          $limiteSinSesion = 120  # 2 minutos sin sesión para apagar
+          $intervalo = 10         # comprobar cada 10 segundos
+          
+          Write-Host "⏳ Máximo hasta: $fin"
+          Write-Host "🔄 Comprobando sesiones RDP cada $intervalo segundos..."
+          Write-Host "⚠️  Si no hay sesión RDP durante $limiteSinSesion segundos, se apagará."
           Write-Host ""
           
           while ((Get-Date) -lt $fin) {
-            $rest = [math]::Round(($fin - (Get-Date)).TotalMinutes)
-            Write-Host "[$(Get-Date -Format 'HH:mm:ss')] ⏱️  Restan $rest minutos"
-            Start-Sleep -Seconds 60
+              # Verificar si hay sesiones RDP activas
+              $sesiones = quser 2>$null | Select-String "RDP"
+              $haySesion = ($sesiones -ne $null)
+              
+              $hora = Get-Date -Format "HH:mm:ss"
+              if ($haySesion) {
+                  $sinSesion = 0
+                  # Extraer nombre de usuario y estado
+                  $linea = $sesiones -split '\s+' | Where-Object { $_ -match '^\S+$' } | Select-Object -First 1
+                  Write-Host "[$hora] ✅ Sesión RDP activa (Usuario: $linea)"
+              } else {
+                  $sinSesion += $intervalo
+                  $restante = [math]::Round(($fin - (Get-Date)).TotalMinutes, 1)
+                  Write-Host "[$hora] ⚠️  Sin sesión RDP ($sinSesion/$limiteSinSesion seg) - Restan $restante min"
+                  
+                  if ($sinSesion -ge $limiteSinSesion) {
+                      Write-Host ""
+                      Write-Host "🚫 No se detectó sesión RDP durante $limiteSinSesion segundos." -ForegroundColor Red
+                      Write-Host "🛑 Apagando el runner automáticamente para ahorrar recursos." -ForegroundColor Red
+                      exit 0
+                  }
+              }
+              
+              Start-Sleep -Seconds $intervalo
           }
           
-          Write-Host "⏰ Tiempo agotado. Cerrando sesión..." -ForegroundColor Red
+          Write-Host "⏰ Tiempo máximo alcanzado. Apagando..." -ForegroundColor Red
