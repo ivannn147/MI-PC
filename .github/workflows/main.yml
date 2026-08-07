@@ -14,33 +14,23 @@ jobs:
     timeout-minutes: 660
 
     steps:
-      # 1. Configuración RDP + GPU (rápido, sin idioma)
+      # 1. Configuración RDP + GPU (rápido)
       - name: Configurar RDP y GPU
         run: |
-          # Habilitar RDP
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          
-          # Seguridad: Nivel de autenticación (1 = NLA, más seguro)
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1 -Force
-          
-          # GPU: RemoteFX, WDDM y color de 32 bits
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MaxColorDepth" -Value 4 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "fEnableWddmDriver" -Value 1 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "EnableRemoteFx" -Value 1 -Force
-          
-          # Firewall
           netsh advfirewall firewall delete rule name="RDP" 2>$null
           netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
-          
-          # Reiniciar servicio RDP
-          Restart-Service -Name TermService -Force
+          Restart-Service TermService -Force
 
-      # 2. Crear usuario RDP con contraseña (rápido, sin System.Web)
+      # 2. Crear usuario RDP (generación de contraseña sin System.Web)
       - name: Crear usuario RDP
         run: |
           $pass = "${{ secrets.RDP_PASSWORD }}"
           if (-not $pass) {
-            # Generar contraseña segura de 16 caracteres
             $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-='
             $pass = -join ((1..16) | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
           }
@@ -67,17 +57,44 @@ jobs:
             Start-Sleep -Seconds 3
           }
 
-      # 5. Mostrar credenciales (rápido)
-      - name: Mostrar acceso
+      # 5. Mostrar credenciales y guardarlas en archivo
+      - name: Mostrar y guardar credenciales
         run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "IP: $env:TAILSCALE_IP"
-          Write-Host "User: $env:RDP_USER"
-          Write-Host "Pass: $env:RDP_PASS"
-          Write-Host "Duration: ${{ github.event.inputs.duracion }} min"
-          Write-Host "==================="
+          # Crear archivo con credenciales
+          $creds = @"
+          =====================================
+                 RDP ACCESS
+          =====================================
+          IP:       $env:TAILSCALE_IP
+          Usuario:  $env:RDP_USER
+          Contraseña: $env:RDP_PASS
+          Duración: ${{ github.event.inputs.duracion }} minutos
+          =====================================
+          "@
+          $creds | Out-File -FilePath "$env:GITHUB_WORKSPACE\credenciales.txt" -Encoding UTF8
+          
+          # Mostrar en logs
+          Write-Host "`n====================================="
+          Write-Host "           RDP ACCESS"
+          Write-Host "====================================="
+          Write-Host "IP:       $env:TAILSCALE_IP"
+          Write-Host "Usuario:  $env:RDP_USER"
+          Write-Host "Contraseña: $env:RDP_PASS"
+          Write-Host "Duración: ${{ github.event.inputs.duracion }} minutos"
+          Write-Host "====================================="
+          Write-Host ""
+          Write-Host "✅ Las credenciales están en el archivo: credenciales.txt"
+          Write-Host "   Puedes descargarlo desde la sección de 'Artifacts' de esta ejecución."
 
-      # 6. Mantener sesión por 6 horas (o el tiempo elegido)
+      # 6. Subir credenciales como artefacto (para descargar fácilmente)
+      - name: Subir credenciales
+        uses: actions/upload-artifact@v4
+        with:
+          name: credenciales-rdp
+          path: credenciales.txt
+          retention-days: 1
+
+      # 7. Mantener sesión por el tiempo elegido
       - name: Mantener activo
         run: |
           $fin = (Get-Date).AddMinutes([int]${{ github.event.inputs.duracion }})
