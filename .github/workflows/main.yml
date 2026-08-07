@@ -1,413 +1,85 @@
-name: RDP Windows 10 - 16GB RAM + GPU + 6H
+name: RDP Windows 10 - 16GB RAM + GPU
 
 on:
   workflow_dispatch:
     inputs:
       duracion:
-        description: 'Duración en minutos'
+        description: 'Duración (minutos)'
         required: false
         default: '360'
-        type: choice
-        options:
-          - '360'  # 6 horas
-          - '480'  # 8 horas
-          - '600'  # 10 horas
 
 jobs:
-  rdp-windows-gpu-16gb:
+  rdp:
     runs-on: windows-latest
-    timeout-minutes: 660  # 11 horas máximo (6h + margen)
-    
-    # Configuración para 16GB de RAM
-    env:
-      RAM_SIZE: 16GB
-      GPU_ENABLED: true
-      RDP_DURATION: ${{ github.event.inputs.duracion }}
+    timeout-minutes: 660
 
     steps:
-      # ============================================================
-      # 1. CONFIGURACIÓN DEL SISTEMA (IDIOMA + REGIÓN)
-      # ============================================================
-      - name: Configurar Windows 10 en Español
+      # 1. Configuración rápida de idioma español
+      - name: Configurar español
         run: |
-          Write-Host "🔄 Configurando idioma español..."
-          
-          # Instalar paquete de idioma
-          $langPack = Get-WindowsCapability -Online | Where-Object { 
-            $_.Name -like "Language.Basic~~~es-ES*" -and $_.State -eq "NotPresent" 
-          }
-          if ($langPack) {
-            Add-WindowsCapability -Online -Name $langPack.Name
-          }
-          
-          # Configurar región y formato
           Set-WinSystemLocale -SystemLocale es-ES
           Set-WinUserLanguageList -LanguageList es-ES -Force
-          Set-WinCultureFromLanguageListOptOut -OptOut $false
           Set-TimeZone -Id "Romance Standard Time"
-          
-          Write-Host "✅ Sistema configurado en español"
 
-      # ============================================================
-      # 2. OPTIMIZACIÓN DE MEMORIA (16GB)
-      # ============================================================
-      - name: Optimizar Memoria y Rendimiento
+      # 2. Habilitar GPU y RDP optimizado
+      - name: Configurar RDP con GPU
         run: |
-          Write-Host "🔄 Optimizando memoria (16GB)..."
-          
-          # Configurar página de memoria
-          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" `
-                           -Name "LargeSystemCache" -Value 1 -Force
-          
-          # Habilitar rendimiento máximo
-          powercfg -setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
-          
-          # Deshabilitar servicios innecesarios
-          Stop-Service -Name "SysMain" -Force -ErrorAction SilentlyContinue
-          Set-Service -Name "SysMain" -StartupType Disabled -ErrorAction SilentlyContinue
-          
-          Write-Host "✅ Memoria optimizada"
-
-      # ============================================================
-      # 3. HABILITAR GPU Y ACELERACIÓN GRÁFICA
-      # ============================================================
-      - name: Configurar Aceleración GPU
-        run: |
-          Write-Host "🔄 Habilitando aceleración gráfica..."
-          
-          # Habilitar DirectX
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\DirectX" -Name "EnableDirectX" -Value 1 -Force
-          
-          # Configurar RDP para GPU
-          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" `
-                           -Name "MaxColorDepth" -Value 4 -Force  # 32-bit color
-          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" `
-                           -Name "fEnableWddmDriver" -Value 1 -Force  # WDDM para GPU
-          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" `
-                           -Name "EnableRemoteFx" -Value 1 -Force  # RemoteFX
-          
-          # Instalar herramientas gráficas
-          Install-WindowsFeature -Name Web-Mgmt-Console -IncludeAllSubFeature -IncludeManagementTools
-          
-          Write-Host "✅ Aceleración GPU habilitada"
-
-      # ============================================================
-      # 4. CONFIGURACIÓN RDP
-      # ============================================================
-      - name: Configurar RDP Seguro
-        run: |
-          Write-Host "🔄 Configurando RDP..."
-          
-          # Habilitar RDP
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                           -Name "fDenyTSConnections" -Value 0 -Force
-          
-          # Autenticación Nivel de Red (seguro)
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                           -Name "UserAuthentication" -Value 1 -Force
-          
-          # Optimizaciones gráficas
-          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" `
-                           -Name "VisualEffects" -Value 1 -Force
-          
-          # Firewall
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1 -Force
+          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MaxColorDepth" -Value 4 -Force
+          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "fEnableWddmDriver" -Value 1 -Force
+          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "EnableRemoteFx" -Value 1 -Force
           netsh advfirewall firewall delete rule name="RDP-Tailscale" 2>$null
           netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
-          
-          # Reiniciar servicio
-          Restart-Service -Name TermService -Force
-          
-          Write-Host "✅ RDP configurado"
+          Restart-Service TermService -Force
 
-      # ============================================================
-      # 5. CREAR USUARIO ADMINISTRADOR
-      # ============================================================
-      - name: Crear Usuario Administrador
+      # 3. Crear usuario administrador
+      - name: Crear usuario
         run: |
-          Write-Host "🔄 Creando usuario administrador..."
-          
-          $password = "${{ secrets.RDP_PASSWORD }}"
-          if (-not $password) {
-              # Generar contraseña segura
-              Add-Type -AssemblyName System.Web
-              $password = [System.Web.Security.Membership]::GeneratePassword(16, 4)
+          $pass = "${{ secrets.RDP_PASSWORD }}"
+          if (-not $pass) { 
+            Add-Type -AssemblyName System.Web
+            $pass = [System.Web.Security.Membership]::GeneratePassword(16,4) 
           }
-          
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          
-          # Crear usuario
-          New-LocalUser -Name "Administrador" -Password $securePass -FullName "Admin RDP" `
-                        -Description "Administrador RDP" -AccountNeverExpires
-          
-          # Agregar a grupos
-          Add-LocalGroupMember -Group "Administradores" -Member "Administrador"
-          Add-LocalGroupMember -Group "Usuarios de Escritorio Remoto" -Member "Administrador"
-          
-          # Guardar credenciales
-          echo "RDP_USER=Administrador" >> $env:GITHUB_ENV
-          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
-          
-          Write-Host "✅ Usuario 'Administrador' creado"
+          New-LocalUser -Name "Admin" -Password (ConvertTo-SecureString $pass -AsPlainText -Force) -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administradores" -Member "Admin"
+          Add-LocalGroupMember -Group "Usuarios de Escritorio Remoto" -Member "Admin"
+          echo "RDP_PASS=$pass" >> $env:GITHUB_ENV
+          echo "RDP_USER=Admin" >> $env:GITHUB_ENV
 
-      # ============================================================
-      # 6. INSTALAR PROGRAMAS BÁSICOS (PERSISTENTES)
-      # ============================================================
-      - name: Instalar Programas Base (Persistentes)
-        run: |
-          Write-Host "🔄 Instalando programas base..."
-          
-          # Crear directorio para programas
-          New-Item -ItemType Directory -Path "C:\Programas" -Force
-          
-          # 6.1 Instalar 7-Zip
-          Write-Host "📦 Instalando 7-Zip..."
-          $7zipUrl = "https://www.7-zip.org/a/7z2409-x64.msi"
-          $7zipPath = "$env:TEMP\7zip.msi"
-          Invoke-WebRequest -Uri $7zipUrl -OutFile $7zipPath -UseBasicParsing
-          Start-Process msiexec.exe -ArgumentList "/i `"$7zipPath`" /quiet /norestart" -Wait
-          Remove-Item $7zipPath -Force
-          
-          # 6.2 Instalar Google Chrome
-          Write-Host "📦 Instalando Google Chrome..."
-          $chromeUrl = "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
-          $chromePath = "$env:TEMP\chrome.exe"
-          Invoke-WebRequest -Uri $chromeUrl -OutFile $chromePath -UseBasicParsing
-          Start-Process $chromePath -ArgumentList "/silent /install" -Wait
-          Remove-Item $chromePath -Force
-          
-          # 6.3 Instalar Notepad++
-          Write-Host "📦 Instalando Notepad++..."
-          $nppUrl = "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.6.8/npp.8.6.8.Installer.x64.exe"
-          $nppPath = "$env:TEMP\npp.exe"
-          Invoke-WebRequest -Uri $nppUrl -OutFile $nppPath -UseBasicParsing
-          Start-Process $nppPath -ArgumentList "/S" -Wait
-          Remove-Item $nppPath -Force
-          
-          # 6.4 Instalar Visual Studio Code
-          Write-Host "📦 Instalando VS Code..."
-          $vscodeUrl = "https://update.code.visualstudio.com/latest/win32-x64-user/stable"
-          $vscodePath = "$env:TEMP\vscode.exe"
-          Invoke-WebRequest -Uri $vscodeUrl -OutFile $vscodePath -UseBasicParsing
-          Start-Process $vscodePath -ArgumentList "/verysilent /suppressmsgboxes /mergetasks=!runcode" -Wait
-          Remove-Item $vscodePath -Force
-          
-          # 6.5 Instalar Python 3.11
-          Write-Host "📦 Instalando Python 3.11..."
-          $pythonUrl = "https://www.python.org/ftp/python/3.11.8/python-3.11.8-amd64.exe"
-          $pythonPath = "$env:TEMP\python.exe"
-          Invoke-WebRequest -Uri $pythonUrl -OutFile $pythonPath -UseBasicParsing
-          Start-Process $pythonPath -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
-          Remove-Item $pythonPath -Force
-          
-          # 6.6 Instalar Git
-          Write-Host "📦 Instalando Git..."
-          $gitUrl = "https://github.com/git-for-windows/git/releases/download/v2.45.1.windows.1/Git-2.45.1-64-bit.exe"
-          $gitPath = "$env:TEMP\git.exe"
-          Invoke-WebRequest -Uri $gitUrl -OutFile $gitPath -UseBasicParsing
-          Start-Process $gitPath -ArgumentList "/SILENT /NORESTART" -Wait
-          Remove-Item $gitPath -Force
-          
-          Write-Host "✅ Todos los programas instalados"
-
-      # ============================================================
-      # 7. INSTALAR TAILSCALE
-      # ============================================================
+      # 4. Instalar Tailscale (rápido)
       - name: Instalar Tailscale
         run: |
-          Write-Host "🔄 Instalando Tailscale..."
-          
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath -UseBasicParsing
-          Start-Process msiexec.exe -ArgumentList "/i `"$installerPath`" /quiet /norestart" -Wait
-          Remove-Item $installerPath -Force
-          
-          Write-Host "✅ Tailscale instalado"
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\ts.msi" -UseBasicParsing
+          Start-Process msiexec -ArgumentList "/i `"$env:TEMP\ts.msi`" /quiet /norestart" -Wait
 
-      # ============================================================
-      # 8. CONECTAR TAILSCALE
-      # ============================================================
+      # 5. Conectar Tailscale
       - name: Conectar Tailscale
         run: |
-          Write-Host "🔄 Conectando a Tailscale..."
-          
-          $authKey = "${{ secrets.TAILSCALE_AUTH_KEY }}"
-          if (-not $authKey) {
-              Write-Error "❌ TAILSCALE_AUTH_KEY no configurada en Secrets"
-              exit 1
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=rdp-$env:GITHUB_RUN_ID --reset
+          for ($i=0; $i -lt 10; $i++) {
+            $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+            if ($ip) { echo "TAILSCALE_IP=$ip" >> $env:GITHUB_ENV; break }
+            Start-Sleep -Seconds 3
           }
-          
-          # Conectar
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=$authKey `
-            --hostname=rdp-windows-$env:GITHUB_RUN_ID --accept-routes --reset
-          
-          # Obtener IP
-          $tsIP = $null
-          for ($i=0; $i -lt 15; $i++) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              if ($tsIP) { break }
-              Write-Host "⏳ Esperando IP... ($i/15)"
-              Start-Sleep -Seconds 3
-          }
-          
-          if (-not $tsIP) {
-              Write-Error "❌ No se pudo obtener IP de Tailscale"
-              exit 1
-          }
-          
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-          Write-Host "✅ Conectado - IP: $tsIP"
 
-      # ============================================================
-      # 9. VERIFICAR SISTEMA Y RECURSOS
-      # ============================================================
-      - name: Verificar Recursos del Sistema
+      # 6. Mostrar credenciales (solo la IP y usuario, la pass está en el log)
+      - name: Mostrar acceso
         run: |
-          Write-Host "`n=== 📊 ESTADO DEL SISTEMA ==="
-          
-          # Memoria RAM
-          $mem = Get-WmiObject Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum
-          $ramGB = [math]::Round($mem.Sum/1GB, 2)
-          Write-Host "💾 RAM Total: $ramGB GB"
-          
-          # CPU
-          $cpu = Get-WmiObject Win32_Processor
-          Write-Host "🖥️  CPU: $($cpu.Name)"
-          Write-Host "⚡ Núcleos: $($cpu.NumberOfCores)"
-          
-          # GPU
-          $gpu = Get-WmiObject Win32_VideoController | Select-Object -First 1
-          Write-Host "🎮 GPU: $($gpu.Name)"
-          Write-Host "💻 Driver: $($gpu.DriverVersion)"
-          
-          # Disco
-          $disk = Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='C:'"
-          $freeGB = [math]::Round($disk.FreeSpace/1GB, 2)
-          $totalGB = [math]::Round($disk.Size/1GB, 2)
-          Write-Host "💿 Disco C: $freeGB GB libre de $totalGB GB"
-          
-          # Guardar información
-          echo "RAM_TOTAL=$ramGB" >> $env:GITHUB_ENV
-          echo "GPU_NAME=$($gpu.Name)" >> $env:GITHUB_ENV
-          
-          Write-Host "✅ Verificación completada"
+          Write-Host "`n=== CONEXIÓN RDP ==="
+          Write-Host "IP: $env:TAILSCALE_IP"
+          Write-Host "Usuario: $env:RDP_USER"
+          Write-Host "Contraseña: $env:RDP_PASS"
+          Write-Host "Duración: ${{ github.event.inputs.duracion }} min"
+          Write-Host "==================="
 
-      # ============================================================
-      # 10. CREAR SCRIPT DE PERSISTENCIA (INICIO AUTOMÁTICO)
-      # ============================================================
-      - name: Crear Script de Auto-Inicio
+      # 7. Mantener activo durante 6 horas (con monitoreo ligero)
+      - name: Mantener sesión
         run: |
-          # Crear script que inicia todos los programas al conectar
-          $scriptPath = "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\auto_start.ps1"
-          
-          @"
-          Write-Host "🚀 Iniciando programas automáticamente..."
-          
-          # Iniciar Chrome
-          Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" -WindowStyle Maximized
-          
-          # Iniciar VS Code
-          Start-Process "C:\Users\Administrador\AppData\Local\Programs\Microsoft VS Code\Code.exe"
-          
-          # Iniciar Notepad++
-          Start-Process "C:\Program Files\Notepad++\notepad++.exe"
-          
-          # Mostrar información
-          Write-Host "✅ Programas cargados"
-          Write-Host "💡 Recuerda: Esta sesión durará $env:RDP_DURATION minutos"
-          "@ | Out-File -FilePath $scriptPath -Encoding UTF8
-          
-          Write-Host "✅ Script de auto-inicio creado"
-
-      # ============================================================
-      # 11. MOSTRAR CREDENCIALES DE ACCESO
-      # ============================================================
-      - name: Mostrar Credenciales
-        run: |
-          Write-Host ""
-          Write-Host "╔══════════════════════════════════════════════════════════════════╗"
-          Write-Host "║              🖥️  RDP WINDOWS 10 - 16GB RAM + GPU              ║"
-          Write-Host "╠══════════════════════════════════════════════════════════════════╣"
-          Write-Host "║                                                                    ║"
-          Write-Host "║  🌐 IP Tailscale:  $env:TAILSCALE_IP                             ║"
-          Write-Host "║  👤 Usuario:       Administrador                                  ║"
-          Write-Host "║  🔑 Contraseña:    $env:RDP_PASS               ║"
-          Write-Host "║  💾 RAM:           $env:RAM_TOTAL GB                                   ║"
-          Write-Host "║  🎮 GPU:           $env:GPU_NAME                                   ║"
-          Write-Host "║  ⏱️  Duración:      $env:RDP_DURATION minutos ($([math]::Round([int]$env:RDP_DURATION/60,1)) horas)  ║"
-          Write-Host "║                                                                    ║"
-          Write-Host "╠══════════════════════════════════════════════════════════════════╣"
-          Write-Host "║  📦 PROGRAMAS INSTALADOS:                                        ║"
-          Write-Host "║  • 7-Zip       • Google Chrome  • Notepad++                      ║"
-          Write-Host "║  • VS Code     • Python 3.11    • Git                           ║"
-          Write-Host "║                                                                    ║"
-          Write-Host "╠══════════════════════════════════════════════════════════════════╣"
-          Write-Host "║  📌 INSTRUCCIONES:                                                ║"
-          Write-Host "║  1. Conéctate a Tailscale en tu máquina local                     ║"
-          Write-Host "║  2. Usa Cliente RDP y conecta a la IP indicada                   ║"
-          Write-Host "║  3. Los programas se iniciarán automáticamente                   ║"
-          Write-Host "║  4. Puedes instalar más programas (persistirán)                 ║"
-          Write-Host "╚══════════════════════════════════════════════════════════════════╝"
-          Write-Host ""
-
-      # ============================================================
-      # 12. MANTENER CONEXIÓN ACTIVA (6 HORAS)
-      # ============================================================
-      - name: Mantener RDP Activo (6 Horas)
-        run: |
-          $duracionMin = [int]$env:RDP_DURATION
-          $fin = (Get-Date).AddMinutes($duracionMin)
-          $inicio = Get-Date
-          
-          Write-Host "⏳ Sesión RDP activa hasta: $fin"
-          Write-Host "🔄 Los programas instalados se mantendrán"
-          Write-Host "💾 RAM: $env:RAM_TOTAL GB | GPU: $env:GPU_NAME"
-          Write-Host "⚠️  Presiona Ctrl+C en la interfaz de GitHub para terminar antes"
-          Write-Host ""
-          
+          $fin = (Get-Date).AddMinutes([int]${{ github.event.inputs.duracion }})
           while ((Get-Date) -lt $fin) {
-              $restante = [math]::Round(($fin - (Get-Date)).TotalMinutes, 1)
-              $transcurrido = [math]::Round(((Get-Date) - $inicio).TotalMinutes, 1)
-              $hora = Get-Date -Format "HH:mm:ss"
-              
-              # Mostrar estado cada 5 minutos
-              if ($restante % 5 -eq 0 -or $restante -lt 10) {
-                  # Recursos del sistema
-                  $cpu = (Get-Counter "\Processor(_Total)\% Processor Time").CounterSamples.CookedValue
-                  $mem = (Get-Counter "\Memory\Available MBytes").CounterSamples.CookedValue
-                  $memGB = [math]::Round($mem/1024, 2)
-                  
-                  Write-Host "[$hora] ⏱️  Restante: $restante min | Transcurrido: $transcurrido min"
-                  Write-Host "      📊 CPU: $([math]::Round($cpu,1))% | RAM libre: $memGB GB"
-                  
-                  # Verificar procesos importantes
-                  $chrome = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
-                  $vscode = Get-Process -Name "Code" -ErrorAction SilentlyContinue
-                  if ($chrome -or $vscode) {
-                      Write-Host "      ✅ Programas activos: Chrome$(if($chrome){' ✓'}else{' ✗'}) | VS Code$(if($vscode){' ✓'}else{' ✗'})"
-                  }
-              }
-              
-              Start-Sleep -Seconds 60
+            $rest = [math]::Round(($fin - (Get-Date)).TotalMinutes)
+            Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Restan $rest min"
+            Start-Sleep -Seconds 60
           }
-          
-          Write-Host ""
-          Write-Host "⏰ Tiempo agotado ($duracionMin minutos). Cerrando sesión..."
-
-      # ============================================================
-      # 13. LIMPIEZA AUTOMÁTICA (SIEMPRE EJECUTAR)
-      # ============================================================
-      - name: Limpiar y Cerrar Sesión
-        if: always()
-        run: |
-          Write-Host "🧹 Realizando limpieza..."
-          
-          # Desconectar Tailscale
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" down 2>$null
-          
-          # Deshabilitar RDP
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                           -Name "fDenyTSConnections" -Value 1 -Force 2>$null
-          
-          Write-Host "✅ Limpieza completada"
