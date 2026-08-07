@@ -1,4 +1,4 @@
-name: RDP Windows 10 - 16GB RAM + GPU
+name: RDP - 16GB RAM + GPU
 
 on:
   workflow_dispatch:
@@ -14,26 +14,19 @@ jobs:
     timeout-minutes: 660
 
     steps:
-      # 1. Configuración rápida de idioma español
-      - name: Configurar español
-        run: |
-          Set-WinSystemLocale -SystemLocale es-ES
-          Set-WinUserLanguageList -LanguageList es-ES -Force
-          Set-TimeZone -Id "Romance Standard Time"
-
-      # 2. Habilitar GPU y RDP optimizado
-      - name: Configurar RDP con GPU
+      # 1. Habilitar RDP y GPU (sin idioma)
+      - name: Configurar RDP y GPU
         run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1 -Force
           Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MaxColorDepth" -Value 4 -Force
           Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "fEnableWddmDriver" -Value 1 -Force
           Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "EnableRemoteFx" -Value 1 -Force
-          netsh advfirewall firewall delete rule name="RDP-Tailscale" 2>$null
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+          netsh advfirewall firewall delete rule name="RDP" 2>$null
+          netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
           Restart-Service TermService -Force
 
-      # 3. Crear usuario administrador
+      # 2. Crear usuario administrador (sin idioma)
       - name: Crear usuario
         run: |
           $pass = "${{ secrets.RDP_PASSWORD }}"
@@ -47,14 +40,13 @@ jobs:
           echo "RDP_PASS=$pass" >> $env:GITHUB_ENV
           echo "RDP_USER=Admin" >> $env:GITHUB_ENV
 
-      # 4. Instalar Tailscale (rápido)
+      # 3. Instalar Tailscale (solo esto descarga ~40 MB)
       - name: Instalar Tailscale
         run: |
-          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\ts.msi" -UseBasicParsing
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi" -OutFile "$env:TEMP\ts.msi" -UseBasicParsing
           Start-Process msiexec -ArgumentList "/i `"$env:TEMP\ts.msi`" /quiet /norestart" -Wait
 
-      # 5. Conectar Tailscale
+      # 4. Conectar Tailscale
       - name: Conectar Tailscale
         run: |
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=rdp-$env:GITHUB_RUN_ID --reset
@@ -64,18 +56,18 @@ jobs:
             Start-Sleep -Seconds 3
           }
 
-      # 6. Mostrar credenciales (solo la IP y usuario, la pass está en el log)
+      # 5. Mostrar credenciales (rápido)
       - name: Mostrar acceso
         run: |
-          Write-Host "`n=== CONEXIÓN RDP ==="
+          Write-Host "`n=== RDP ACCESS ==="
           Write-Host "IP: $env:TAILSCALE_IP"
-          Write-Host "Usuario: $env:RDP_USER"
-          Write-Host "Contraseña: $env:RDP_PASS"
-          Write-Host "Duración: ${{ github.event.inputs.duracion }} min"
+          Write-Host "User: $env:RDP_USER"
+          Write-Host "Pass: $env:RDP_PASS"
+          Write-Host "Duration: ${{ github.event.inputs.duracion }} min"
           Write-Host "==================="
 
-      # 7. Mantener activo durante 6 horas (con monitoreo ligero)
-      - name: Mantener sesión
+      # 6. Mantener sesión por 6 horas
+      - name: Mantener activo
         run: |
           $fin = (Get-Date).AddMinutes([int]${{ github.event.inputs.duracion }})
           while ((Get-Date) -lt $fin) {
