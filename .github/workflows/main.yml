@@ -26,17 +26,19 @@ jobs:
           netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
           Restart-Service TermService -Force
 
-      # 2. Crear usuario administrador (sin idioma)
+      # 2. Crear usuario administrador (corregido, sin System.Web)
       - name: Crear usuario
         run: |
           $pass = "${{ secrets.RDP_PASSWORD }}"
           if (-not $pass) { 
-            Add-Type -AssemblyName System.Web
-            $pass = [System.Web.Security.Membership]::GeneratePassword(16,4) 
+            # Generar contraseña de 16 caracteres con caracteres seguros
+            $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-='
+            $pass = -join ((1..16) | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
           }
-          New-LocalUser -Name "Admin" -Password (ConvertTo-SecureString $pass -AsPlainText -Force) -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administradores" -Member "Admin"
-          Add-LocalGroupMember -Group "Usuarios de Escritorio Remoto" -Member "Admin"
+          $securePass = ConvertTo-SecureString $pass -AsPlainText -Force
+          New-LocalUser -Name "Admin" -Password $securePass -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member "Admin"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Admin"
           echo "RDP_PASS=$pass" >> $env:GITHUB_ENV
           echo "RDP_USER=Admin" >> $env:GITHUB_ENV
 
